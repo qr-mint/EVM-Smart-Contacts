@@ -19,6 +19,7 @@ contract AddressNFTv5 is Ownable {
 
     event TokensReceived(address indexed token, address indexed from, uint256 amount, uint256 fee);
     event TokensWithdrawn(address indexed token, address indexed to, uint256 amount);
+    event CommissionWithdrawn(address indexed to, uint256 amount);
 
     constructor(
         uint256 _id,
@@ -70,23 +71,26 @@ contract AddressNFTv5 is Ownable {
     }
 
     // Вывод накопленной комиссии в ETH
-    function withdrawCommission(uint256 amount) external {
-        require(msg.sender == owner(), "Not owner");
-        require(amount <= address(this).balance, "Insufficient ETH balance");
+    function withdrawCommission() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "Nothing to withdraw");
 
-        (bool success, ) = payable(owner()).call{value: amount}("");
-        require(success, "ETH commission transfer failed");
+        address to = owner();
+        (bool success, ) = payable(to).call{value: balance}("");
+        require(success, "ETH transfer failed");
+
+        emit CommissionWithdrawn(commissionWallet, balance);
     }
 
     // Вывод накопленной комиссии в токенах
-    function withdrawTokenCommission(address tokenAddress, uint256 amount) external {
-        require(msg.sender == owner(), "Not owner");
-        require(amount <= tokenBalances[tokenAddress], "Insufficient token balance");
+    function withdrawTokenCommission(address tokenAddress) external onlyOwner {
+        uint256 balance = tokenBalances[tokenAddress];
+        require(balance > 0, "Insufficient token balance");
 
-        tokenBalances[tokenAddress] -= amount;
-        IERC20(tokenAddress).safeTransfer(owner(), amount);
+        tokenBalances[tokenAddress] = 0;
+        IERC20(tokenAddress).safeTransfer(owner(), balance);
 
-        emit TokensWithdrawn(tokenAddress, owner(), amount);
+        emit TokensWithdrawn(tokenAddress, owner(), balance);
     }
 
     // Получить баланс комиссии для конкретного токена
@@ -101,14 +105,19 @@ contract AddressNFTv5 is Ownable {
 
     // Обновить адрес commissionWallet
     function setCommissionWallet(address _commissionWallet) external {
-        require(msg.sender == owner(), "Not owner");
+        require(msg.sender == collectionAddress, "Not owner");
         commissionWallet = _commissionWallet;
     }
 
     // Обновить комиссию (в bp)
     function setCommission(uint256 _commission) external {
-        require(msg.sender == owner(), "Not owner");
+        require(msg.sender == collectionAddress, "Not owner");
         commission = _commission;
+    }
+
+    function setMetadataUrl(string calldata _url) external {
+        require(msg.sender == collectionAddress, "Not owner");
+        metadata_url = _url;
     }
 
     function tokenURI() public view returns (string memory) {
@@ -134,11 +143,5 @@ contract AddressNFTv5 is Ownable {
         require(amount <= balance - tokenBalances[tokenAddress], "Cannot withdraw commission funds");
         
         token.safeTransfer(owner(), amount);
-    }
-
-    // Экстренная функция для возврата ошибочно отправленных ETH
-    function recoverETH(uint256 amount) external onlyOwner {
-        require(amount <= address(this).balance - getBalance(), "Cannot withdraw commission funds");
-        payable(owner()).transfer(amount);
     }
 }

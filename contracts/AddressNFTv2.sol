@@ -75,6 +75,11 @@ contract AddressNFTv2 is Ownable {
         require(success, "ETH transfer failed");
     }
 
+    function setMetadataUrl(string calldata _url) external {
+        require(msg.sender == collectionAddress, "Not owner");
+        metadata_url = _url;
+    }
+
     function tokenURI() public view returns (string memory) {
         return metadata_url;
     }

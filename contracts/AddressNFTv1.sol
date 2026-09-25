@@ -4,8 +4,9 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract AddressNFTv1 is Ownable {
+contract AddressNFTv1 is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     
     uint256 public contractId;
@@ -19,6 +20,7 @@ contract AddressNFTv1 is Ownable {
 
     event TokensReceived(address indexed token, address indexed from, uint256 amount, uint256 fee);
     event TokensWithdrawn(address indexed token, address indexed to, uint256 amount);
+    event CommissionWithdrawn(address indexed to, uint256 amount);
 
     constructor(
         uint256 _id,
@@ -70,23 +72,30 @@ contract AddressNFTv1 is Ownable {
     }
 
     // Вывод накопленной комиссии в ETH
-    function withdrawCommission(uint256 amount) external {
-        require(msg.sender == commissionWallet, "Not owner");
-        require(amount <= address(this).balance, "Insufficient ETH balance");
+    function withdrawCommission() external nonReentrant {
+        require(msg.sender == commissionWallet, "Not commissionWallet");
 
-        (bool success, ) = payable(commissionWallet).call{value: amount}("");
+        uint256 balance = address(this).balance;
+        require(balance > 0, "Nothing to withdraw");
+
+        (bool success, ) = payable(commissionWallet).call{value: balance}("");
         require(success, "ETH commission transfer failed");
+
+        emit CommissionWithdrawn(commissionWallet, balance);
     }
 
     // Вывод накопленной комиссии в токенах
-    function withdrawTokenCommission(address tokenAddress, uint256 amount) external {
-        require(msg.sender == commissionWallet, "Not owner");
-        require(amount <= tokenBalances[tokenAddress], "Insufficient token balance");
+    function withdrawTokenCommission(address tokenAddress) external nonReentrant {
+        require(msg.sender == commissionWallet, "Not commissionWallet");
+        require(tokenAddress != address(0), "Invalid token");
 
-        tokenBalances[tokenAddress] -= amount;
-        IERC20(tokenAddress).safeTransfer(commissionWallet, amount);
+        uint256 balance = tokenBalances[tokenAddress];
+        require(balance > 0, "Nothing to withdraw");
 
-        emit TokensWithdrawn(tokenAddress, commissionWallet, amount);
+        tokenBalances[tokenAddress] = 0;
+        IERC20(tokenAddress).safeTransfer(commissionWallet, balance);
+
+        emit TokensWithdrawn(tokenAddress, commissionWallet, balance);
     }
 
     // Получить баланс комиссии для конкретного токена
@@ -101,14 +110,19 @@ contract AddressNFTv1 is Ownable {
 
     // Обновить адрес commissionWallet
     function setCommissionWallet(address _commissionWallet) external {
-        require(msg.sender == owner(), "Not owner");
+        require(msg.sender == collectionAddress, "Not owner");
         commissionWallet = _commissionWallet;
     }
 
     // Обновить комиссию (в bp)
     function setCommission(uint256 _commission) external {
-        require(msg.sender == owner(), "Not owner");
+        require(msg.sender == collectionAddress, "Not owner");
         commission = _commission;
+    }
+
+    function setMetadataUrl(string calldata _url) external {
+        require(msg.sender == collectionAddress, "Not owner");
+        metadata_url = _url;
     }
 
     function tokenURI() public view returns (string memory) {
@@ -134,11 +148,5 @@ contract AddressNFTv1 is Ownable {
         require(amount <= balance - tokenBalances[tokenAddress], "Cannot withdraw commission funds");
         
         token.safeTransfer(owner(), amount);
-    }
-
-    // Экстренная функция для возврата ошибочно отправленных ETH
-    function recoverETH(uint256 amount) external onlyOwner {
-        require(amount <= address(this).balance - getBalance(), "Cannot withdraw commission funds");
-        payable(owner()).transfer(amount);
     }
 }

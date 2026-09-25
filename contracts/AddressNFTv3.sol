@@ -56,21 +56,29 @@ contract AddressNFTv3 is Ownable {
     }
 
     // Вывод ETH
-    function withdraw(uint256 amount) external onlyOwner {
-        require(amount <= address(this).balance, "Insufficient ETH balance");
+    function withdraw() external onlyOwner {
+         uint256 balance = address(this).balance;
+        require(balance > 0, "Nothing to withdraw");
 
-        payable(owner()).transfer(amount);
-        emit ETHWithdrawn(owner(), amount);
+        address to = owner();
+        (bool success, ) = payable(to).call{value: balance}("");
+        require(success, "ETH transfer failed");
+
+        emit ETHWithdrawn(to, balance);
     }
 
     // Вывод ERC20 токенов
-    function withdrawTokens(address tokenAddress, uint256 amount) external onlyOwner {
+    function withdrawTokens(address tokenAddress) external onlyOwner {
+        require(tokenAddress != address(0), "Invalid token");
+
         IERC20 token = IERC20(tokenAddress);
         uint256 balance = token.balanceOf(address(this));
-        require(amount <= balance, "Insufficient token balance");
+        require(balance > 0, "Insufficient token balance");
 
-        token.safeTransfer(owner(), amount);
-        emit TokensWithdrawn(tokenAddress, owner(), amount);
+        address to = owner();
+        token.safeTransfer(to, balance);
+
+        emit TokensWithdrawn(tokenAddress, to, balance);
     }
 
     // Вывод всех токенов определенного типа
@@ -81,6 +89,11 @@ contract AddressNFTv3 is Ownable {
 
         token.safeTransfer(owner(), balance);
         emit TokensWithdrawn(tokenAddress, owner(), balance);
+    }
+
+    function setMetadataUrl(string calldata _url) external {
+        require(msg.sender == collectionAddress, "Not owner");
+        metadata_url = _url;
     }
 
     function tokenURI() public view returns (string memory) {
